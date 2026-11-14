@@ -1,0 +1,16 @@
+- [Orval integer schema compatibility](orval-integer-zod.md) — Use OpenAPI number for counters until the generator/runtime versions are aligned.
+- [Event response schema completeness](event-response-schema.md) — Persisted event fields must be declared in OpenAPI before Zod response parsing, or generated validators strip them.
+- [POC seed evolution](poc-seed-evolution.md) — Demo seed data must backfill missing records when the database may already contain an earlier seed set.
+- [Synthetic notice intake](synthetic-notice-intake.md) — Select named scenarios explicitly; do not imply generic document parsing from a filename.
+- [OpenAPI format compatibility](orval-auth-format-compatibility.md) — Avoid auth email/URI formats when this Orval/Zod generator emits unsupported runtime helpers.
+- [Server-side PDF intake](server-pdf-intake.md) — Use system PDF utilities for intake extraction; parser imports can crash the Replit Node runtime.
+- [Dividend withholding scope](dividend-withholding-scope.md) — Model withholding as a validated event-level rate; reconcile settlement against net cash.
+- [Single scheme impact model](single-scheme-impact-model.md) — Derive scheme impacts on event arrival and reuse them across decisions and operations.
+- [Scheme accountability view](scheme-accountability-view.md) — Scheme pages decompose NAV impact, funding gaps, cap headroom, and only holdings currently in play.
+- [Early sighting precedence](early-sighting-precedence.md) — Exchange sightings are indicative and non-actionable; custodian terms and depository quantities unlock workflow actions.
+- [Rolling seed clock](rolling-seed-clock.md) — Synthetic arrivals and deadlines must be relative to read time; dashboard recency uses a rolling 24-hour window.
+- [Rights decision controls](rights-decision-controls.md) — Rights choices are scheme-level, constrained by cash and concentration maxima, and submitted as one maker package.
+- [Warm operations palette](warm-operations-palette.md) — Use named warm tokens only; sidebar foregrounds are solid and semantic colors signal status.
+- [Cross-event issuer exposure](cross-event-issuer-exposure.md) — Group concurrent events by issuer and scheme; count the shared holding baseline once, then sum action deltas.
+- [Stage 2 numeric guardrail](stage2-numeric-guardrail.md) — The model's prompt snapshot is the validator allow-list; no numeric exceptions, or they become hallucination bypasses.
+- [Real intake portfolio analysis](real-intake-portfolio-analysis.md) — Real notices match a static holdings master (ISIN before name aliases); custodian merges must carry calculation inputs forward.

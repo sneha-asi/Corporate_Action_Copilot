@@ -1,0 +1,1986 @@
+openapi: 3.1.0
+info:
+  # Do not change the title, if the title changes, the import paths will be broken
+  title: Api
+  version: 0.1.0
+  description: API specification
+servers:
+  - url: /api
+    description: Base API path
+tags:
+  - name: health
+    description: Health operations
+  - name: copilot
+    description: Corporate actions operations workbench
+  - name: Auth
+    description: Browser and mobile authentication endpoints.
+paths:
+  /auth/user:
+    get:
+      tags: [Auth]
+      operationId: getCurrentAuthUser
+      summary: Get the currently authenticated user
+      parameters:
+        - $ref: "#/components/parameters/AuthorizationSessionHeader"
+        - $ref: "#/components/parameters/SessionCookie"
+      responses:
+        "200":
+          description: Auth status resolved successfully.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthUserEnvelope"
+  /login:
+    get:
+      tags: [Auth]
+      operationId: beginBrowserLogin
+      summary: Start the browser OIDC login flow
+      parameters:
+        - name: returnTo
+          in: query
+          required: false
+          description: Relative path to redirect to after login (must start with `/`). Defaults to `/`.
+          schema:
+            type: string
+      responses:
+        "302":
+          description: Redirect to the OIDC authorization endpoint.
+  /callback:
+    get:
+      tags: [Auth]
+      operationId: handleBrowserLoginCallback
+      summary: Complete the browser OIDC login flow
+      parameters:
+        - name: code
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: state
+          in: query
+          required: false
+          schema:
+            type: string
+        - name: iss
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        "302":
+          description: Redirect to the requested safe return path.
+  /logout:
+    get:
+      tags: [Auth]
+      operationId: logoutBrowserSession
+      summary: Clear the session and begin OIDC logout
+      parameters:
+        - $ref: "#/components/parameters/AuthorizationSessionHeader"
+        - $ref: "#/components/parameters/SessionCookie"
+        - name: returnTo
+          in: query
+          required: false
+          schema:
+            type: string
+            default: /
+      responses:
+        "302":
+          description: Redirect to the OIDC logout endpoint.
+  /mobile-auth/token-exchange:
+    post:
+      tags: [Auth]
+      operationId: exchangeMobileAuthorizationCode
+      summary: Exchange a mobile OIDC code for a session token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/MobileTokenExchangeRequest"
+      responses:
+        "200":
+          description: Session created successfully.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MobileTokenExchangeSuccess"
+        "400":
+          description: Missing or invalid required fields.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "401":
+          description: Token did not contain usable claims.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+        "500":
+          description: Token exchange failed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /mobile-auth/logout:
+    post:
+      tags: [Auth]
+      operationId: logoutMobileSession
+      summary: Delete a mobile session token
+      parameters:
+        - $ref: "#/components/parameters/AuthorizationSessionHeader"
+      responses:
+        "200":
+          description: Logout processed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LogoutSuccess"
+  /session:
+    get:
+      operationId: getSession
+      tags: [copilot]
+      summary: Get the signed-in operational operator
+      responses:
+        "200":
+          description: Authenticated operational operator
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OperationalActor"
+        "401":
+          description: No signed-in operator
+    post:
+      operationId: signInSession
+      tags: [copilot]
+      summary: Establish an allowlisted POC demo operator session
+      description: Available only when the server is running in its non-production POC environment.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SignInInput"
+      responses:
+        "200":
+          description: Signed-in operational operator
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OperationalActor"
+        "400":
+          description: Invalid operational operator
+  /healthz:
+    get:
+      operationId: healthCheck
+      tags: [health]
+      summary: Health check
+      description: Returns server health status
+      responses:
+        "200":
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+  /issuers:
+    get:
+      operationId: listIssuers
+      tags: [issuers]
+      summary: List every issuer the house holds, ranked by exposure
+      responses:
+        "200":
+          description: Held issuers ranked by house exposure
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/IssuerSummary"
+  /issuers/{issuerId}:
+    get:
+      operationId: getIssuer
+      tags: [issuers]
+      summary: Get the issuer accountability view
+      parameters:
+        - name: issuerId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Issuer accountability view
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IssuerDetail"
+        "404":
+          description: Issuer not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorEnvelope"
+  /dashboard:
+    get:
+      operationId: getDashboard
+      tags: [copilot]
+      summary: Get operations dashboard summary
+      responses:
+        "200":
+          description: Dashboard summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Dashboard"
+  /analysis:
+    get:
+      operationId: getAnalysis
+      tags: [copilot]
+      summary: Get aggregate portfolio and historical analysis
+      responses:
+        "200":
+          description: Server-derived aggregate analysis
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Analysis"
+  /schemes:
+    get:
+      operationId: listSchemes
+      tags: [schemes]
+      summary: List all fund manager scheme summaries
+      responses:
+        "200":
+          description: All portfolio schemes
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SchemeSummary"
+  /schemes/{schemeId}:
+    get:
+      operationId: getScheme
+      tags: [schemes]
+      summary: Get a fund manager scheme accountability view
+      security:
+        - CorporateActionSession: []
+      parameters:
+        - name: schemeId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        "200":
+          description: Scheme accountability view
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SchemeDetail"
+        "404":
+          description: Scheme not found
+  /desk:
+    get:
+      operationId: getArkaDesk
+      tags: [arka-desk]
+      summary: Get the Arka Mutual Fund Bharat Renewables decision desk
+      security:
+        - CorporateActionSession: []
+      responses:
+        "200":
+          description: Arka rights issue decision desk
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ArkaDesk"
+  /desk/decisions:
+    post:
+      operationId: saveArkaDeskDecisions
+      tags: [arka-desk]
+      summary: Save fund manager rights issue decisions
+      security:
+        - CorporateActionSession: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ArkaDeskDecisionInput"
+      responses:
+        "200":
+          description: Updated Arka decision desk
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ArkaDesk"
+        "400":
+          description: Invalid decision
+        "403":
+          description: Fund Manager role required
+  /desk/submit:
+    post:
+      operationId: submitArkaDesk
+      tags: [arka-desk]
+      summary: Submit resolved Arka decisions for compliance checking
+      security:
+        - CorporateActionSession: []
+      responses:
+        "200":
+          description: Submitted Arka decision desk
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ArkaDesk"
+        "409":
+          description: Submission is blocked
+  /desk/approval:
+    post:
+      operationId: approveArkaDesk
+      tags: [arka-desk]
+      summary: Approve or return an Arka decision submission
+      security:
+        - CorporateActionSession: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ArkaDeskApprovalInput"
+      responses:
+        "200":
+          description: Checked Arka decision desk
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ArkaDesk"
+        "409":
+          description: Maker-checker validation failed
+  /events:
+    get:
+      operationId: listEvents
+      tags: [copilot]
+      summary: List corporate action events
+      parameters:
+        - in: query
+          name: status
+          schema:
+            type: string
+        - in: query
+          name: search
+          schema:
+            type: string
+        - in: query
+          name: eventType
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Corporate action events
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/EventSummary"
+  /discovery/search:
+    post:
+      operationId: searchLiveCorporateActions
+      tags: [copilot]
+      summary: Search public web sources for indicative corporate-action notices
+      security:
+        - CorporateActionSession: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LiveDiscoveryInput"
+      responses:
+        "200":
+          description: Indicative web discovery results
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LiveDiscoveryResponse"
+        "400":
+          description: Invalid search query
+        "502":
+          description: Web discovery provider unavailable
+  /discovery/last:
+    get:
+      operationId: getLastDiscovery
+      tags: [copilot]
+      summary: Return the most recent public web discovery search and its results
+      security:
+        - CorporateActionSession: []
+      responses:
+        "200":
+          description: The last stored discovery search, when one exists
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LastDiscoveryResponse"
+  /intake:
+    post:
+      operationId: createIntake
+      tags: [copilot]
+      summary: Create a corporate-action case from a named synthetic sample
+      security:
+        - CorporateActionSession: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IntakeInput"
+      responses:
+        "201":
+          description: Created event case
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EventDetail"
+        "400":
+          description: Invalid or duplicate notice
+  /intake/drafts:
+    post:
+      operationId: createIntakeDraft
+      tags: [copilot]
+      summary: Capture a corporate-action source before extraction
+      security:
+        - CorporateActionSession: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IntakeDraftInput"
+      responses:
+        "201":
+          description: Captured intake source
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IntakeDraft"
+  /intake/drafts/{draftId}:
+    get:
+      operationId: getIntakeDraft
+      tags: [copilot]
+      summary: Get a captured corporate-action source
+      security:
+        - CorporateActionSession: []
+      parameters:
+        - $ref: "#/components/parameters/DraftId"
+      responses:
+        "200":
+          description: Intake source and extraction state
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IntakeDraft"
+  /intake/drafts/{draftId}/extract:
+    post:
+      operationId: extractIntakeDraft
+      tags: [copilot]
+      summary: Extract proposed corporate-action terms from a captured source
+      security:
+        - CorporateActionSession: []
+      parameters:
+        - $ref: "#/components/parameters/DraftId"
+      responses:
+        "200":
+          description: Extracted source details ready for review
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IntakeDraft"
+  /intake/drafts/{draftId}/validate:
+    post:
+      operationId: validateIntakeDraft
+      tags: [copilot]
+      summary: Validate extracted corporate-action details before case creation
+      security:
+        - CorporateActionSession: []
+      parameters:
+        - $ref: "#/components/parameters/DraftId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IntakeValidationInput"
+      responses:
+        "200":
+          description: Updated draft after analyst validation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IntakeDraft"
+  /intake/drafts/{draftId}/create-case:
+    post:
+      operationId: createCaseFromIntakeDraft
+      tags: [copilot]
+      summary: Create a controlled case from analyst-validated intake data
+      security:
+        - CorporateActionSession: []
+      parameters:
+        - $ref: "#/components/parameters/DraftId"
+      responses:
+        "201":
+          description: Created corporate-action event case
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EventDetail"
+  /storage/uploads/request-url:
+    post:
+      operationId: requestUploadUrl
+      tags: [storage]
+      summary: Request a protected document upload URL
+      security:
+        - CorporateActionSession: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RequestUploadUrlInput"
+      responses:
+        "200":
+          description: Presigned upload destination
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RequestUploadUrlResult"
+  /events/{eventId}:
+    get:
+      operationId: getEvent
+      tags: [copilot]
+      summary: Get a corporate action event and its workbench data
+      parameters:
+        - $ref: "#/components/parameters/EventId"
+      responses:
+        "200":
+          description: Corporate action event
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EventDetail"
+    patch:
+      operationId: updateEvent
+      tags: [copilot]
+      summary: Update analyst-controlled event terms
+      security:
+        - CorporateActionSession: []
+      parameters:
+        - $ref: "#/components/parameters/EventId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EventUpdate"
+      responses:
+        "200":
+          description: Updated event
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EventDetail"
+  /events/{eventId}/calculate:
+    post:
+      operationId: calculateEvent
+      tags: [copilot]
+      summary: Run deterministic eligibility and impact calculation
+      security:
+        - CorporateActionSession: []
+      parameters:
+        - $ref: "#/components/parameters/EventId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CalculateInput"
+      responses:
+        "200":
+          description: Calculated event
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EventDetail"
+        "409":
+          description: Calculation is blocked by invalid or incomplete terms
+        "404":
+          description: Event not found
+  /events/{eventId}/election:
+    post:
+      operationId: saveElection
+      tags: [copilot]
+      summary: Save an election for an affected account
+      security:
+        - CorporateActionSession: []
+      parameters:
+        - $ref: "#/components/parameters/EventId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ElectionInput"
+      responses:
+        "200":
+          description: Updated event
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EventDetail"
+  /events/{eventId}/approval:
+    post:
+      operationId: approveEvent
+      tags: [copilot]
+      summary: Record maker-checker approval
+      security:
+        - CorporateActionSession: []
+      parameters:
+        - $ref: "#/components/parameters/EventId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ApprovalInput"
+      responses:
+        "200":
+          description: Updated event
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EventDetail"
+  /events/{eventId}/instruction:
+    post:
+      operationId: updateInstruction
+      tags: [copilot]
+      summary: Update simulated instruction status
+      security:
+        - CorporateActionSession: []
+      parameters:
+        - $ref: "#/components/parameters/EventId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InstructionInput"
+      responses:
+        "200":
+          description: Updated event
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EventDetail"
+  /events/{eventId}/reconciliation:
+    post:
+      operationId: saveReconciliation
+      tags: [copilot]
+      summary: Record expected versus actual settlement
+      security:
+        - CorporateActionSession: []
+      parameters:
+        - $ref: "#/components/parameters/EventId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReconciliationInput"
+      responses:
+        "200":
+          description: Updated event
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EventDetail"
+  /tasks:
+    get:
+      operationId: listTasks
+      tags: [copilot]
+      summary: List operational tasks and flags
+      responses:
+        "200":
+          description: Operational tasks
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Task"
+  /tasks/{taskId}/resolve:
+    post:
+      operationId: resolveTask
+      tags: [copilot]
+      summary: Resolve an operational task
+      security:
+        - CorporateActionSession: []
+      parameters:
+        - in: path
+          name: taskId
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Updated task
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Task"
+  /events/{eventId}/judgement:
+    post:
+      operationId: generateJudgement
+      tags: [copilot]
+      summary: Run Stage 2 AI judgement over the Stage 1 deterministic output
+      security:
+        - CorporateActionSession: []
+      parameters:
+        - $ref: "#/components/parameters/EventId"
+      responses:
+        "200":
+          description: Updated event with the latest judgement result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EventDetail"
+        "404":
+          description: Event not found
+  /audit/export:
+    get:
+      operationId: exportAudit
+      tags: [copilot]
+      summary: Download the full audit trail as a compliance CSV export
+      responses:
+        "200":
+          description: Full audit trail in CSV form
+          content:
+            text/csv:
+              schema:
+                type: string
+  /audit:
+    get:
+      operationId: listAudit
+      tags: [copilot]
+      summary: List audit history
+      parameters:
+        - in: query
+          name: eventId
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Audit history
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AuditEntry"
+components:
+  securitySchemes:
+    CorporateActionSession:
+      type: apiKey
+      in: cookie
+      name: corporate_actions_actor
+      description: Signed HTTP-only demo identity available only in the non-production POC environment.
+  parameters:
+    AuthorizationSessionHeader:
+      name: Authorization
+      in: header
+      required: false
+      description: "Opaque session token: `Bearer <sid>`."
+      schema:
+        type: string
+    SessionCookie:
+      name: sid
+      in: cookie
+      required: false
+      description: Browser session cookie.
+      schema:
+        type: string
+    EventId:
+      in: path
+      name: eventId
+      required: true
+      schema:
+        type: string
+    DraftId:
+      in: path
+      name: draftId
+      required: true
+      schema:
+        type: string
+  schemas:
+    AuthUser:
+      type: object
+      required: [id, email, firstName, lastName, profileImageUrl]
+      properties:
+        id:
+          type: string
+        email:
+          type: [string, "null"]
+        firstName:
+          type: [string, "null"]
+        lastName:
+          type: [string, "null"]
+        profileImageUrl:
+          type: [string, "null"]
+    AuthUserEnvelope:
+      type: object
+      required: [user]
+      properties:
+        user:
+          oneOf:
+            - $ref: "#/components/schemas/AuthUser"
+            - type: "null"
+    MobileTokenExchangeRequest:
+      type: object
+      required: [code, code_verifier, redirect_uri, state]
+      properties:
+        code:
+          type: string
+          minLength: 1
+        code_verifier:
+          type: string
+          minLength: 1
+        redirect_uri:
+          type: string
+          minLength: 1
+        state:
+          type: string
+          minLength: 1
+        nonce:
+          type: string
+          minLength: 1
+    MobileTokenExchangeSuccess:
+      type: object
+      required: [token]
+      properties:
+        token:
+          type: string
+    LogoutSuccess:
+      type: object
+      required: [success]
+      properties:
+        success:
+          type: boolean
+          const: true
+    ErrorEnvelope:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: string
+    HealthStatus:
+      type: object
+      properties:
+        status:
+          type: string
+      required:
+        - status
+    Dashboard:
+      type: object
+      required: [arrivalCount24h, arrivalsAffectingSchemes24h, portfolioEventCount, impactedSchemeCount, totalSchemeCount, totalFunding, nearestDeadline, nearestFundingIssuer, needsYouCount, needsNothingCount, awaitingConfirmationCount, atStakeAmount, dueWithin3DaysCount, settlementBreakCount, topHouseExposures, dataTrust, lastQuarter, inboundEvents, schemes]
+      properties:
+        arrivalCount24h: { type: number }
+        arrivalsAffectingSchemes24h: { type: number }
+        portfolioEventCount: { type: number }
+        impactedSchemeCount: { type: number }
+        totalSchemeCount: { type: number }
+        totalFunding: { type: number }
+        nearestDeadline: { type: string }
+        nearestFundingIssuer: { type: string }
+        needsYouCount: { type: number }
+        needsNothingCount: { type: number }
+        awaitingConfirmationCount: { type: number }
+        atStakeAmount: { type: number }
+        dueWithin3DaysCount: { type: number }
+        settlementBreakCount: { type: number }
+        topHouseExposures:
+          type: array
+          items:
+            $ref: "#/components/schemas/DashboardHouseExposure"
+        dataTrust:
+          $ref: "#/components/schemas/DashboardDataTrust"
+        lastQuarter:
+          $ref: "#/components/schemas/DashboardLastQuarter"
+        inboundEvents:
+          type: array
+          items:
+            $ref: "#/components/schemas/EventSummary"
+        schemes:
+          type: array
+          items:
+            $ref: "#/components/schemas/SchemeSummary"
+    DashboardHouseExposure:
+      type: object
+      required: [issuerId, issuer, houseExposureAmount, schemesHolding, schemesAffected, tightestHeadroomPercent, attention]
+      properties:
+        issuerId: { type: string }
+        issuer: { type: string }
+        houseExposureAmount: { type: number }
+        schemesHolding: { type: number }
+        schemesAffected: { type: number }
+        tightestHeadroomPercent: { type: ["number", "null"] }
+        attention: { type: ["string", "null"] }
+    DashboardDataTrust:
+      type: object
+      required: [conflictingSourceCount, lastDeliveryChannel, lastDeliveryAt, allSynthetic]
+      properties:
+        conflictingSourceCount: { type: number }
+        lastDeliveryChannel: { type: string }
+        lastDeliveryAt: { type: string }
+        allSynthetic: { type: boolean }
+    DashboardLastQuarter:
+      type: object
+      required: [capturedAmount, forfeitedAmount, lapsedCount, deadlinesMet, deadlinesTotal]
+      properties:
+        capturedAmount: { type: number }
+        forfeitedAmount: { type: number }
+        lapsedCount: { type: number }
+        deadlinesMet: { type: number }
+        deadlinesTotal: { type: number }
+    IssuerSummary:
+      type: object
+      required: [issuerId, issuer, isin, houseExposureAmount, percentOfAum, schemesHolding, schemesAffected, openActionCount, tightestHeadroomPercent, attention]
+      properties:
+        issuerId: { type: string }
+        issuer: { type: string }
+        isin: { type: string }
+        houseExposureAmount: { type: number }
+        percentOfAum: { type: number }
+        schemesHolding: { type: number }
+        schemesAffected: { type: number }
+        openActionCount: { type: number }
+        tightestHeadroomPercent: { type: ["number", "null"] }
+        attention: { type: ["string", "null"] }
+    IssuerDetail:
+      type: object
+      required: [issuerId, issuer, isin, situation, houseExposure, perScheme, events, summary, quarterTimeline, cumulativeNote]
+      properties:
+        issuerId: { type: string }
+        issuer: { type: string }
+        isin: { type: string }
+        situation: { type: string }
+        houseExposure:
+          $ref: "#/components/schemas/IssuerHouseExposure"
+        perScheme:
+          type: array
+          items:
+            $ref: "#/components/schemas/IssuerSchemeRow"
+        events:
+          type: array
+          items:
+            $ref: "#/components/schemas/IssuerEventRow"
+        summary:
+          $ref: "#/components/schemas/IssuerQuarterSummary"
+        quarterTimeline:
+          type: array
+          items:
+            $ref: "#/components/schemas/IssuerTimelineRow"
+        cumulativeNote: { type: string }
+    IssuerTimelineRow:
+      type: object
+      required: [eventId, eventType, receivedAt, status, open, decisionRequired, holdingQuantity, effect]
+      properties:
+        eventId: { type: string }
+        eventType: { type: string }
+        receivedAt: { type: string }
+        status: { type: string }
+        open: { type: boolean }
+        decisionRequired: { type: boolean }
+        holdingQuantity: { type: number }
+        effect: { type: string }
+    IssuerHouseExposure:
+      type: object
+      required: [totalAmount, percentOfAum, schemeCount, affectedSchemeCount, totalSchemeCount, largestSchemeName, largestSchemeAmount]
+      properties:
+        totalAmount: { type: number }
+        percentOfAum: { type: number }
+        schemeCount: { type: number }
+        affectedSchemeCount: { type: number }
+        totalSchemeCount: { type: number }
+        largestSchemeName: { type: string }
+        largestSchemeAmount: { type: number }
+    IssuerSchemeRow:
+      type: object
+      required: [schemeId, schemeName, holdingQuantity, valueAmount, percentOfNav, headroomPercent]
+      properties:
+        schemeId: { type: string }
+        schemeName: { type: string }
+        holdingQuantity: { type: number }
+        valueAmount: { type: number }
+        percentOfNav: { type: number }
+        headroomPercent: { type: ["number", "null"] }
+    IssuerEventRow:
+      type: object
+      required: [eventId, eventName, eventType, receivedAt, status, open, capturedAmount, forfeitedAmount]
+      properties:
+        eventId: { type: string }
+        eventName: { type: string }
+        eventType: { type: string }
+        receivedAt: { type: string }
+        status: { type: string }
+        open: { type: boolean }
+        capturedAmount: { type: ["number", "null"] }
+        forfeitedAmount: { type: ["number", "null"] }
+    IssuerQuarterSummary:
+      type: object
+      required: [actionsLastQuarter, receivedAmount, forfeitedAmount, openDecisionCount]
+      properties:
+        actionsLastQuarter: { type: number }
+        receivedAmount: { type: number }
+        forfeitedAmount: { type: number }
+        openDecisionCount: { type: number }
+    Analysis:
+      type: object
+      required: [generatedAt, purpose, conclusion, schemes, history, decisions]
+      properties:
+        generatedAt: { type: string, format: date-time }
+        purpose: { type: string }
+        conclusion: { type: string }
+        schemes:
+          type: array
+          items:
+            $ref: "#/components/schemas/AnalysisScheme"
+        history:
+          $ref: "#/components/schemas/AnalysisHistory"
+        decisions:
+          type: array
+          items:
+            $ref: "#/components/schemas/AnalysisDecision"
+    AnalysisDecision:
+      type: object
+      required: [eventId, eventLabel, schemeName, decision, decidedBy, decidedAt, approvedBy, valueAmount, status]
+      properties:
+        eventId: { type: string }
+        eventLabel: { type: string }
+        schemeName: { type: string }
+        decision: { type: string }
+        decidedBy: { type: string }
+        decidedAt: { type: string }
+        approvedBy: { type: string }
+        valueAmount: { type: number }
+        status: { type: string }
+    AnalysisScheme:
+      type: object
+      required: [schemeId, schemeName, openEventCount, aggregateFundingNeeded, largestSingleEventFunding, cashAvailable, shortfall, fundingStatus, aggregateNavImpactPaise, issuerExposures, combinedOnlyBreaches]
+      properties:
+        schemeId: { type: string }
+        schemeName: { type: string }
+        openEventCount: { type: number }
+        aggregateFundingNeeded: { type: number }
+        largestSingleEventFunding: { type: number }
+        cashAvailable: { type: ["number", "null"] }
+        shortfall: { type: ["number", "null"] }
+        fundingStatus: { type: string }
+        aggregateNavImpactPaise: { type: number }
+        issuerExposures:
+          type: array
+          items:
+            $ref: "#/components/schemas/IssuerExposure"
+        combinedOnlyBreaches:
+          type: array
+          items:
+            $ref: "#/components/schemas/CombinedCapBreach"
+    IssuerExposure:
+      type: object
+      required: [issuer, eventCount, includesMandatory, currentPercent, postActionPercent, capPercent, distanceToCapPercent, breach, status]
+      properties:
+        issuer: { type: string }
+        eventCount: { type: number }
+        includesMandatory: { type: boolean }
+        currentPercent: { type: number }
+        postActionPercent: { type: number }
+        capPercent: { type: number }
+        distanceToCapPercent: { type: number }
+        breach: { type: boolean }
+        status: { type: string }
+    CombinedCapBreach:
+      type: object
+      required: [issuer, eventIds, postActionPercent, capPercent, excessPercent]
+      properties:
+        issuer: { type: string }
+        eventIds:
+          type: array
+          items: { type: string }
+        postActionPercent: { type: number }
+        capPercent: { type: number }
+        excessPercent: { type: number }
+    AnalysisHistory:
+      type: object
+      required: [capturedAmount, forfeitedAmount, lapsedCount, deadlinesMet, deadlinesTotal, closedEvents]
+      properties:
+        capturedAmount: { type: number }
+        forfeitedAmount: { type: number }
+        lapsedCount: { type: number }
+        deadlinesMet: { type: number }
+        deadlinesTotal: { type: number }
+        closedEvents:
+          type: array
+          items:
+            $ref: "#/components/schemas/ClosedEventHistory"
+    ClosedEventHistory:
+      type: object
+      required: [eventId, issuer, eventType, capturedAmount, forfeitedAmount, lapsed, deadlineOutcome, reconciliationStatus]
+      properties:
+        eventId: { type: string }
+        issuer: { type: string }
+        eventType: { type: string }
+        capturedAmount: { type: number }
+        forfeitedAmount: { type: number }
+        lapsed: { type: boolean }
+        deadlineOutcome: { type: string }
+        reconciliationStatus: { type: string }
+    SchemeSummary:
+      type: object
+      required: [id, name, category, aumCrore, navRupees, holdingCount, openActions, totalNavImpactPaise, fundingNeeded, cashAvailable, shortfall, closestDeadline, largestExposureIssuer, largestExposureEventId, largestExposureEventName, largestExposurePercent, distanceToLimitPercent, flag]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        category: { type: string }
+        aumCrore: { type: number }
+        navRupees: { type: number }
+        holdingCount: { type: number }
+        openActions:
+          type: array
+          items:
+            $ref: "#/components/schemas/SchemeOpenAction"
+        totalNavImpactPaise: { type: number }
+        fundingNeeded: { type: number }
+        cashAvailable: { type: number }
+        shortfall: { type: number }
+        closestDeadline: { type: string }
+        largestExposureIssuer: { type: string }
+        largestExposureEventId: { type: string }
+        largestExposureEventName: { type: string }
+        largestExposurePercent: { type: number }
+        distanceToLimitPercent: { type: number }
+        flag: { type: ["string", "null"] }
+    SchemeOpenAction:
+      type: object
+      required: [eventId, issuer, eventType, materialityPaise]
+      properties:
+        eventId: { type: string }
+        issuer: { type: string }
+        eventType: { type: string }
+        materialityPaise: { type: number }
+    SchemeDetail:
+      type: object
+      required: [id, name, category, situation, totalHoldings, aumCrore, navRupees, contributions, funding, headroom, holdings]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        category: { type: string }
+        situation: { type: string }
+        totalHoldings: { type: number }
+        aumCrore: { type: number }
+        navRupees: { type: number }
+        contributions:
+          type: array
+          items:
+            $ref: "#/components/schemas/SchemeContribution"
+        funding:
+          $ref: "#/components/schemas/SchemeFunding"
+        headroom:
+          $ref: "#/components/schemas/SchemeHeadroom"
+        holdings:
+          type: array
+          items:
+            $ref: "#/components/schemas/SchemeHolding"
+    SchemeContribution:
+      type: object
+      required: [eventId, eventName, eventType, navImpactPaise, cashAmount, cashDirection, deadline, status]
+      properties:
+        eventId: { type: string }
+        eventName: { type: string }
+        eventType: { type: string }
+        navImpactPaise: { type: number }
+        cashAmount: { type: number }
+        cashDirection: { type: string }
+        deadline: { type: string }
+        status: { type: string }
+    SchemeFunding:
+      type: object
+      required: [needed, available, shortfall, status]
+      properties:
+        needed: { type: number }
+        available: { type: number }
+        shortfall: { type: number }
+        status: { type: string }
+    SchemeHeadroom:
+      type: object
+      required: [issuer, currentPercent, distanceToCapPercent, postActionPercent, capPercent, maximumRights]
+      properties:
+        issuer: { type: string }
+        currentPercent: { type: number }
+        distanceToCapPercent: { type: number }
+        postActionPercent: { type: number }
+        capPercent: { type: number }
+        maximumRights: { type: number }
+    SchemeHolding:
+      type: object
+      required: [eventId, eventName, issuer, security, isin, quantity, asOfDate]
+      properties:
+        eventId: { type: string }
+        eventName: { type: string }
+        issuer: { type: string }
+        security: { type: string }
+        isin: { type: string }
+        quantity: { type: number }
+        asOfDate: { type: string }
+    ArkaDesk:
+      type: object
+      required: [event, calendar, securityMaster, terms, rule, funnel, schemes, totals, submission]
+      properties:
+        event:
+          $ref: "#/components/schemas/ArkaDeskEvent"
+        calendar:
+          $ref: "#/components/schemas/ArkaDeskCalendar"
+        securityMaster:
+          $ref: "#/components/schemas/ArkaSecurityMaster"
+        terms:
+          $ref: "#/components/schemas/ArkaRightsTerms"
+        rule:
+          $ref: "#/components/schemas/ArkaLimitRule"
+        funnel:
+          $ref: "#/components/schemas/ArkaEligibilityFunnel"
+        schemes:
+          type: array
+          items:
+            $ref: "#/components/schemas/ArkaSchemeImpact"
+        totals:
+          $ref: "#/components/schemas/ArkaDecisionTotals"
+        submission:
+          oneOf:
+            - $ref: "#/components/schemas/ArkaSubmission"
+            - type: "null"
+    ArkaDeskEvent:
+      type: object
+      required: [reference, issuer, securityName, ticker, isin, reIsin, securityId, exchange, currency, cmp, subscriptionPrice, rightsRatio, status, classification, source]
+      properties:
+        reference: { type: string }
+        issuer: { type: string }
+        securityName: { type: string }
+        ticker: { type: string }
+        isin: { type: string }
+        reIsin: { type: string }
+        securityId: { type: string }
+        exchange: { type: string }
+        currency: { type: string }
+        cmp: { type: number }
+        subscriptionPrice: { type: number }
+        rightsRatio: { type: string }
+        status: { type: string }
+        classification: { type: string }
+        source: { type: string }
+    ArkaDeskCalendar:
+      type: object
+      required: [receivedDate, recordDate, exRightsDate, fundDeadline, marketDeadline, settlementDate]
+      properties:
+        receivedDate: { type: string }
+        recordDate: { type: string }
+        exRightsDate: { type: string }
+        fundDeadline: { type: string }
+        marketDeadline: { type: string }
+        settlementDate: { type: string }
+    ArkaSecurityMaster:
+      type: object
+      required: [issuer, securityName, ticker, isin, reIsin, exchange, currency, cmp, status, market]
+      properties:
+        issuer: { type: string }
+        securityName: { type: string }
+        ticker: { type: string }
+        isin: { type: string }
+        reIsin: { type: string }
+        exchange: { type: string }
+        currency: { type: string }
+        cmp: { type: number }
+        status: { type: string }
+        market: { type: string }
+    ArkaRightsTerms:
+      type: object
+      required: [terp, rightValue, dilution, ratio, subscriptionPrice, totalRights, totalExerciseCashCrore]
+      properties:
+        terp: { type: number }
+        rightValue: { type: number }
+        dilution: { type: number }
+        ratio: { type: string }
+        subscriptionPrice: { type: number }
+        totalRights: { type: number }
+        totalExerciseCashCrore: { type: number }
+    ArkaLimitRule:
+      type: object
+      required: [id, name, description, limitPercent, method]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        description: { type: string }
+        limitPercent: { type: number }
+        method: { type: string }
+    ArkaEligibilityFunnel:
+      type: object
+      required: [universe, holdsEquityIsin, heldOnRecordDate, folioActive, eligible, excluded, blocked, exclusionReasons]
+      properties:
+        universe: { type: number }
+        holdsEquityIsin: { type: number }
+        heldOnRecordDate: { type: number }
+        folioActive: { type: number }
+        eligible: { type: number }
+        excluded: { type: number }
+        blocked: { type: number }
+        exclusionReasons:
+          type: array
+          items:
+            type: object
+            required: [scheme, reason]
+            properties:
+              scheme: { type: string }
+              reason: { type: string }
+    ArkaSchemeImpact:
+      type: object
+      required: [id, schemeCode, name, category, aumCrore, navPaise, holdingQuantity, entitlementRights, decisionRights, fullCashCrore, cashAvailableCrore, exerciseCashPaise, exerciseCashCrore, navHitPaise, navHitPercent, currentExposurePercent, capUsagePercent, sebiLimitPercent, forfeitedRights, eligibilityStatus, blockers, decisionState]
+      properties:
+        id: { type: string }
+        schemeCode: { type: string }
+        name: { type: string }
+        category: { type: string }
+        aumCrore: { type: number }
+        navPaise: { type: number }
+        holdingQuantity: { type: number }
+        entitlementRights: { type: number }
+        decisionRights: { type: number }
+        fullCashCrore: { type: number }
+        cashAvailableCrore: { type: ["number", "null"] }
+        exerciseCashPaise: { type: number }
+        exerciseCashCrore: { type: number }
+        navHitPaise: { type: number }
+        navHitPercent: { type: number }
+        currentExposurePercent: { type: number }
+        capUsagePercent: { type: number }
+        sebiLimitPercent: { type: number }
+        maxRightsByCap: { type: ["number", "null"] }
+        maxRightsByCash: { type: ["number", "null"] }
+        forfeitedRights: { type: number }
+        eligibilityStatus: { type: string }
+        exclusionReason: { type: ["string", "null"] }
+        blockers:
+          type: array
+          items: { type: string }
+        decisionState: { type: string }
+        decisionReadOnly: { type: boolean }
+        decisionReadOnlyReason: { type: ["string", "null"] }
+    ArkaDecisionTotals:
+      type: object
+      required: [totalEntitlementRights, totalDecisionRights, totalExerciseCashCrore, blockedSchemes, forfeitedRights, canSubmit]
+      properties:
+        totalEntitlementRights: { type: number }
+        totalDecisionRights: { type: number }
+        totalExerciseCashCrore: { type: number }
+        blockedSchemes:
+          type: array
+          items: { type: string }
+        forfeitedRights: { type: number }
+        canSubmit: { type: boolean }
+    ArkaSubmission:
+      type: object
+      required: [id, status, submittedById, submittedByName, submittedAt, checkedById, checkedByName, checkedAt]
+      properties:
+        id: { type: string }
+        status: { type: string }
+        submittedById: { type: string }
+        submittedByName: { type: string }
+        submittedAt: { type: string }
+        checkedById: { type: ["string", "null"] }
+        checkedByName: { type: ["string", "null"] }
+        checkedAt: { type: ["string", "null"] }
+    ArkaDeskDecisionInput:
+      type: object
+      required: [decisions]
+      properties:
+        decisions:
+          type: array
+          items:
+            type: object
+            required: [schemeId, rights]
+            properties:
+              schemeId: { type: string }
+              rights: { type: number }
+    ArkaDeskApprovalInput:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [Approved, Returned]
+    DashboardSchemeImpact:
+      type: object
+      required: [id, schemeId, schemeName, affected, eligibleQuantity, direction, cashAmount, quantityResult, navImpactPaise, navImpactTreatment, flag]
+      properties:
+        id: { type: string }
+        schemeId: { type: string }
+        schemeName: { type: string }
+        affected: { type: boolean }
+        eligibleQuantity: { type: number }
+        direction:
+          type: string
+          enum: [Receivable, Funding, Neutral]
+        cashDirection: { type: string }
+        cashAmount: { type: number }
+        quantityResult: { type: ["number", "null"] }
+        navImpactPaise: { type: ["number", "null"] }
+        navImpactTreatment: { type: string }
+        flag: { type: ["string", "null"] }
+        account: { type: string }
+        formula: { type: string }
+        expected: { type: number }
+        expectedCash: { type: number }
+        grossCash: { type: number }
+        withholdingRate: { type: number }
+        withholdingAmount: { type: number }
+        netCash: { type: number }
+        expectedSecurityQuantity: { type: number }
+        securityMovement: { type: string }
+        positionDate: { type: string }
+        securityId: { type: string }
+        eligibilityStatus: { type: string }
+        dataQualityWarning: { type: string }
+        status: { type: string }
+        election: { type: ["string", "null"] }
+        approval: { type: string }
+        entitlement: { type: number }
+        electionDecision:
+          oneOf:
+            - type: object
+              additionalProperties: true
+            - type: "null"
+    EventSummary:
+      type: object
+      required: [id, reference, issuer, security, eventType, processingType, status, marketDeadline, internalDeadline, marketDeadlineAt, internalDeadlineAt, affectedAccounts, amount, currency, receivedAt, source, sourceRecords, sourceAgreement, schemeImpacts, materialityPaise, cashImpactAmount, attention]
+      properties:
+        id: { type: string }
+        reference: { type: string }
+        issuer: { type: string }
+        security: { type: string }
+        eventType: { type: string }
+        processingType: { type: string }
+        status: { type: string }
+        marketDeadline: { type: string }
+        internalDeadline: { type: string }
+        marketDeadlineAt: { type: string, format: date-time }
+        internalDeadlineAt: { type: string, format: date-time }
+        affectedAccounts: { type: number }
+        amount: { type: number }
+        currency: { type: string }
+        receivedAt: { type: string }
+        source: { type: string }
+        sourceRecords:
+          type: array
+          items:
+            $ref: "#/components/schemas/EventSourceRecord"
+        sourceAgreement: { type: string }
+        schemeImpacts:
+          type: array
+          items:
+            $ref: "#/components/schemas/DashboardSchemeImpact"
+        materialityPaise: { type: ["number", "null"] }
+        cashImpactAmount: { type: ["number", "null"] }
+        attention: { type: ["string", "null"] }
+        cashDirection: { type: string, enum: [Receivable, Payable] }
+        referencePrice: { type: number }
+        discountPercentage: { type: number }
+        isHero: { type: boolean }
+        noticeReference: { type: string }
+        settlementStage: { type: string }
+        cashAmount: { type: number }
+        cashCurrency: { type: string }
+        shareAmount: { type: number }
+        shareLabel: { type: string }
+        isEarlySighting: { type: boolean }
+        impactBasis: { type: string }
+        decisionBlockedReason: { type: string }
+        mergedFromSightingId: { type: string }
+        sourceDisagreements:
+          type: array
+          items:
+            type: object
+            required: [field, sightingValue, confirmedValue, winner]
+            properties:
+              field: { type: string }
+              sightingValue: { type: string }
+              confirmedValue: { type: string }
+              winner: { type: string }
+        teachingScenario: { type: string }
+    EventSourceRecord:
+      type: object
+      required: [id, channel, provider, messageType, receivedAt, assertedFields, primary]
+      properties:
+        id: { type: string }
+        channel: { type: string }
+        provider: { type: string }
+        messageType: { type: string }
+        receivedAt: { type: string, format: date-time }
+        assertedFields:
+          type: object
+          additionalProperties:
+            type: string
+        primary: { type: boolean }
+    EventDetail:
+      allOf:
+        - $ref: "#/components/schemas/EventSummary"
+        - type: object
+          required: [notice, terms, positions, options, instruction, reconciliation, tasks, audit, validation, calculation]
+          properties:
+            notice:
+              $ref: "#/components/schemas/Notice"
+            terms:
+              type: array
+              items:
+                $ref: "#/components/schemas/Term"
+            positions:
+              type: array
+              items:
+                $ref: "#/components/schemas/Position"
+            options:
+              type: array
+              items:
+                $ref: "#/components/schemas/Option"
+            instruction:
+              $ref: "#/components/schemas/Instruction"
+            reconciliation:
+              $ref: "#/components/schemas/Reconciliation"
+            tasks:
+              type: array
+              items:
+                $ref: "#/components/schemas/Task"
+            audit:
+              type: array
+              items:
+                $ref: "#/components/schemas/AuditEntry"
+            validation:
+              $ref: "#/components/schemas/Validation"
+            calculation:
+              $ref: "#/components/schemas/Calculation"
+            securityMaster:
+              $ref: "#/components/schemas/SecurityMaster"
+            provenance:
+              $ref: "#/components/schemas/DataProvenance"
+            judgement:
+              $ref: "#/components/schemas/Judgement"
+    DataProvenance:
+      type: object
+      required: [asOf, channel, provider, synthetic]
+      properties:
+        asOf: { type: string }
+        channel: { type: string }
+        provider: { type: string }
+        synthetic: { type: boolean }
+        fetchedAt: { type: string }
+        extractedAt: { type: string }
+        computedAt: { type: string }
+    Judgement:
+      type: object
+      required: [status, model, generatedAt]
+      properties:
+        status:
+          type: string
+          enum: [ok, rejected, unavailable]
+        summary: { type: string }
+        model: { type: string }
+        generatedAt: { type: string }
+        rejectedReason: { type: string }
+    Notice:
+      type: object
+      required: [documentName, source, receivedAt, version, role, excerpt]
+      properties:
+        documentName: { type: string }
+        source: { type: string }
+        receivedAt: { type: string }
+        version: { type: string }
+        role: { type: string }
+        excerpt: { type: string }
+        pages:
+          type: array
+          items:
+            $ref: "#/components/schemas/NoticePage"
+        uploadState: { type: string }
+        sourceDocumentId: { type: string }
+        sourcePath: { type: string }
+        sourceUrl: { type: string }
+        previewUrl: { type: string }
+        extractionMethod: { type: string }
+        extractionConfidence: { type: number }
+    NoticePage:
+      type: object
+      required: [page, text]
+      properties:
+        page: { type: number }
+        text: { type: string }
+    Term:
+      type: object
+      required: [key, label, value, page, evidence, confidence, reviewStatus]
+      properties:
+        key: { type: string }
+        label: { type: string }
+        value: { type: string }
+        page: { type: string }
+        evidence: { type: string }
+        confidence: { type: number }
+        reviewStatus: { type: string }
+        sourceType: { type: string }
+        manuallyCorrected: { type: boolean }
+        oldValue: { type: string }
+        correctionReason: { type: string }
+    Position:
+      type: object
+      required: [id, fund, account, isin, eligibleQuantity, positionDate, eligibilityStatus]
+      properties:
+        id: { type: string }
+        fund: { type: string }
+        account: { type: string }
+        isin: { type: string }
+        securityId: { type: string }
+        settledQuantity: { type: number }
+        unsettledQuantity: { type: number }
+        eligibleQuantity: { type: number }
+        positionDate: { type: string }
+        eligibilityStatus: { type: string }
+        dataQualityWarning: { type: string }
+    Validation:
+      type: object
+      required: [missingTerms, isReady]
+      properties:
+        missingTerms:
+          type: array
+          items: { type: string }
+        isReady: { type: boolean }
+    Calculation:
+      type: object
+      required: [rounding, assumptions, sourceRule]
+      properties:
+        calculationRunAt: { type: string }
+        rounding: { type: string }
+        assumptions: { type: string }
+        sourceRule: { type: string }
+    SecurityMaster:
+      type: object
+      required: [securityId, isin, ticker, securityName, currency, market, status]
+      properties:
+        securityId: { type: string }
+        isin: { type: string }
+        ticker: { type: string }
+        securityName: { type: string }
+        issuer: { type: string }
+        currency: { type: string }
+        market: { type: string }
+        status: { type: string }
+        aliases:
+          type: array
+          items: { type: string }
+    Option:
+      type: object
+      required: [id, label, description, result, default]
+      properties:
+        id: { type: string }
+        label: { type: string }
+        description: { type: string }
+        result: { type: string }
+        default: { type: boolean }
+        fundingFormula: { type: string }
+    Instruction:
+      type: object
+      required: [status, destination, reference, generatedAt, content]
+      properties:
+        status: { type: string }
+        destination: { type: string }
+        reference: { type: string }
+        generatedAt: { type: string }
+        content: { type: string }
+        approvalActor: { type: string }
+        simulated: { type: boolean }
+    Reconciliation:
+      type: object
+      required: [expected, actual, difference, tolerance, status, note]
+      properties:
+        expected: { type: number }
+        actual: { type: number }
+        difference: { type: number }
+        tolerance: { type: number }
+        status: { type: string }
+        note: { type: string }
+        expectedCash: { type: number }
+        expectedGrossCash: { type: number }
+        expectedWithholdingAmount: { type: number }
+        expectedNetCash: { type: number }
+        actualCash: { type: number }
+        expectedSecurityQuantity: { type: number }
+        actualSecurityQuantity: { type: number }
+        expectedCurrency: { type: string }
+        actualCurrency: { type: string }
+        expectedSettlementDate: { type: string }
+        actualSettlementDate: { type: string }
+        expectedAccount: { type: string }
+        actualAccount: { type: string }
+        classification: { type: string }
+        investigationSteps:
+          type: array
+          items: { type: string }
+    Task:
+      type: object
+      required: [id, eventId, title, detail, priority, owner, due, status, category]
+      properties:
+        id: { type: string }
+        eventId: { type: string }
+        title: { type: string }
+        detail: { type: string }
+        priority: { type: string }
+        owner: { type: string }
+        due: { type: string }
+        status: { type: string }
+        category: { type: string }
+        dependency: { type: string }
+        sourceRule: { type: string }
+        escalationPath: { type: string }
+        eventReference: { type: string }
+    AuditEntry:
+      type: object
+      required: [id, eventId, action, actor, timestamp, detail]
+      properties:
+        id: { type: string }
+        eventId: { type: string }
+        action: { type: string }
+        actor: { type: string }
+        actorId: { type: string }
+        actorRole: { type: string }
+        timestamp: { type: string }
+        detail: { type: string }
+        actorType: { type: string }
+        previousValue: { type: string }
+        newValue: { type: string }
+        reason: { type: string }
+        evidenceId: { type: string }
+        workflowStatus: { type: string }
+    EventUpdate:
+      type: object
+      properties:
+        terms:
+          type: array
+          items:
+            $ref: "#/components/schemas/TermUpdate"
+        reason: { type: string }
+    TermUpdate:
+      type: object
+      required: [key, value]
+      properties:
+        key: { type: string }
+        value: { type: string }
+        reason: { type: string }
+    ElectionInput:
+      type: object
+      required: [impactId, optionId, quantityElected]
+      properties:
+        impactId: { type: string }
+        optionId: { type: string }
+        quantityElected: { type: number }
+        comment: { type: string }
+    ApprovalInput:
+      type: object
+      required: [approved, note]
+      properties:
+        approved: { type: boolean }
+        note: { type: string }
+    InstructionInput:
+      type: object
+      required: [status]
+      properties:
+        status: { type: string }
+    ReconciliationInput:
+      type: object
+      required: [actual, note]
+      properties:
+        actual: { type: number }
+        note: { type: string }
+        actualSecurityQuantity: { type: number }
+        actualCurrency: { type: string }
+        actualSettlementDate: { type: string }
+        actualAccount: { type: string }
+    CalculateInput:
+      type: object
+      additionalProperties: false
+    SignInInput:
+      type: object
+      required: [actorId]
+      properties:
+        actorId: { type: string }
+    OperationalActor:
+      type: object
+      required: [id, name, role, desk]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        role:
+          type: string
+          enum: [Fund Manager, Compliance]
+        desk: { type: string }
+    IntakeInput:
+      type: object
+      required: [sampleId, fileName, source]
+      properties:
+        sampleId:
+          type: string
+          enum: [cash-dividend, rights-issue, stock-split, bonus-issue, tender-offer, merger]
+        fileName: { type: string }
+        source: { type: string }
+        noticeText: { type: string }
+    LiveDiscoveryInput:
+      type: object
+      additionalProperties: false
+      required: [query]
+      properties:
+        query:
+          type: string
+          minLength: 3
+          maxLength: 240
+        window:
+          type: string
+          enum: [today, week, month]
+    LiveDiscoveryNotice:
+      type: object
+      additionalProperties: false
+      required: [id, title, sourceUrl, publishedAt, issuer, eventType, summary, terms, whyRelevant, confidence]
+      properties:
+        id: { type: string }
+        title: { type: string }
+        sourceUrl: { type: string }
+        publishedAt: { type: string }
+        issuer: { type: string }
+        eventType: { type: string }
+        summary: { type: string }
+        terms:
+          type: array
+          items: { type: string }
+        whyRelevant: { type: string }
+        confidence:
+          type: string
+          enum: [Unverified]
+    LiveDiscoveryResponse:
+      type: object
+      additionalProperties: false
+      required: [mode, query, window, searchedAt, warning, notices]
+      properties:
+        mode:
+          type: string
+          enum: [Indicative discovery]
+        query: { type: string }
+        window:
+          type: string
+          enum: [today, week, month]
+        searchedAt: { type: string }
+        warning: { type: string }
+        notices:
+          type: array
+          items:
+            $ref: "#/components/schemas/LiveDiscoveryNotice"
+    LastDiscoveryResponse:
+      type: object
+      required: [searches]
+      properties:
+        searches:
+          type: array
+          items:
+            $ref: "#/components/schemas/LiveDiscoveryResponse"
+    RequestUploadUrlInput:
+      type: object
+      required: [name, size, contentType]
+      properties:
+        name: { type: string }
+        size: { type: number }
+        contentType: { type: string }
+    RequestUploadUrlResult:
+      type: object
+      required: [uploadURL, objectPath, metadata]
+      properties:
+        uploadURL: { type: string }
+        objectPath: { type: string }
+        metadata:
+          $ref: "#/components/schemas/UploadMetadata"
+    UploadMetadata:
+      type: object
+      required: [name, size, contentType]
+      properties:
+        name: { type: string }
+        size: { type: number }
+        contentType: { type: string }
+    IntakeDraftInput:
+      type: object
+      required: [sourceType, sourceLabel]
+      properties:
+        sourceType:
+          type: string
+          enum: [sample, upload, url, text, structured-feed]
+        sourceLabel: { type: string }
+        sampleId:
+          type: string
+          enum: [cash-dividend, rights-issue, stock-split, bonus-issue, tender-offer, merger]
+        objectPath: { type: string }
+        sourceUrl: { type: string }
+        sourceText: { type: string }
+        structuredPayload: { type: string }
+    IntakeValidationInput:
+      type: object
+      required: [terms]
+      properties:
+        terms:
+          type: array
+          items:
+            $ref: "#/components/schemas/TermUpdate"
+    IntakeDraft:
+      type: object
+      required: [id, source, extraction, terms, status]
+      properties:
+        id: { type: string }
+        status: { type: string }
+        source:
+          $ref: "#/components/schemas/IntakeSource"
+        extraction:
+          $ref: "#/components/schemas/ExtractionResult"
+        terms:
+          type: array
+          items:
+            $ref: "#/components/schemas/Term"
+        title: { type: string }
+        createdAt: { type: string }
+        updatedAt: { type: string }
+    IntakeSource:
+      type: object
+      required: [type, label, receivedAt, preservation]
+      properties:
+        type: { type: string }
+        label: { type: string }
+        receivedAt: { type: string }
+        preservation: { type: string }
+        objectPath: { type: string }
+        sourceUrl: { type: string }
+        contentType: { type: string }
+        size: { type: number }
+        previewUrl: { type: string }
+        capturedText: { type: string }
+    ExtractionResult:
+      type: object
+      required: [status, method, confidence, errors]
+      properties:
+        status: { type: string }
+        method: { type: string }
+        confidence: { type: number }
+        errors:
+          type: array
+          items: { type: string }
+        extractedAt: { type: string }

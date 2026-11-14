@@ -1,0 +1,384 @@
+import assert from "node:assert/strict";
+import { once } from "node:events";
+import test, { after, afterEach, before, beforeEach, describe } from "node:test";
+import { eq, inArray } from "drizzle-orm";
+import { corporateActionEventsTable, corporateActionIntakeDraftsTable, db, pool } from "@workspace/db";
+import app from "../src/app";
+import { demoUsers, ensureCorporateActionSeedData, getSeededEventSnapshot } from "../src/lib/corporate-actions-v2";
+import { ARKA_SCHEME_SEED } from "../src/lib/arka-desk";
+
+process.env.CORPORATE_ACTIONS_POC = "true";
+
+type EventData = Record<string, any>;
+type Session = { cookie: string };
+
+const runId = crypto.randomUUID().replaceAll("-", "").slice(0, 10);
+const eventId = `test-${runId}-rights`;
+const sightingDraftId = `test-${runId}-sighting-merge`;
+const createdEventIds = new Set<string>([eventId]);
+
+let server: ReturnType<typeof app.listen>;
+let baseUrl: string;
+let analystSession: Session;
+let reviewerSession: Session;
+
+function rightsFixture(): EventData {
+  return {
+    id: eventId,
+    reference: `TEST-${runId}-RIGHTS`,
+    issuer: "Test Rights Issuer",
+    security: "ISIN FR001400TEST · TRS",
+    eventType: "Rights issue",
+    processingType: "Voluntary",
+    status: "Validated",
+    settlementStage: "Validated",
+    marketDeadline: "30 Aug 2026 · 17:30 CEST",
+    internalDeadline: "30 Aug 2026 · 14:00 CEST",
+    marketDeadlineAt: "2026-08-30T15:30:00.000Z",
+    internalDeadlineAt: "2026-08-30T12:00:00.000Z",
+    affectedAccounts: 0,
+    amount: 0,
+    currency: "EUR",
+    receivedAt: "2026-08-26T08:00:00.000Z",
+    source: "Manual upload",
+    sourceRecords: [],
+    sourceAgreement: "The test sources agree.",
+    schemeImpacts: [],
+    notice: {
+      documentName: "test-rights-notice.pdf",
+      source: "API workflow test",
+      receivedAt: "2026-08-26T08:00:00.000Z",
+      version: "v1",
+      role: "New",
+      excerpt: "One right for every five shares at EUR 8.50.",
+      pages: [{ page: 1, text: "Rights ratio: 1 for 5. Subscription price: EUR 8.50. Record date: 24 August 2026." }],
+    },
+    terms: [
+      { key: "rightsRatio", label: "Rights ratio", value: "1 for 5", page: "p. 1", evidence: "Rights ratio: 1 for 5.", confidence: 1, reviewStatus: "Validated" },
+      { key: "subscriptionPrice", label: "Subscription price", value: "EUR 8.50", page: "p. 1", evidence: "Subscription price: EUR 8.50.", confidence: 1, reviewStatus: "Validated" },
+      { key: "recordDate", label: "Record date", value: "24 Aug 2026", page: "p. 1", evidence: "Record date: 24 August 2026.", confidence: 1, reviewStatus: "Validated" },
+    ],
+    positions: [
+      { id: "test-position-1", fund: "Test Fund", account: "TEST-001", isin: "FR001400TEST", securityId: "SEC-TEST", eligibleQuantity: 100_000, positionDate: "2026-08-24", eligibilityStatus: "Eligible", dataQualityWarning: "" },
+        { id: "test-position-2", fund: "Test Fund", account: "TEST-002", isin: "FR001400TEST", securityId: "SEC-TEST", eligibleQuantity: 50_000, positionDate: "2026-08-24", eligibilityStatus: "Eligible", dataQualityWarning: "" },
+    ],
+    securityMaster: { securityId: "SEC-TEST", isin: "FR001400TEST", ticker: "TRS", securityName: "Test Rights Security", currency: "EUR", market: "France", status: "Active" },
+    requiredTermKeys: ["rightsRatio", "subscriptionPrice", "recordDate"],
+    calculationInputs: { ratioNumerator: 1, ratioDenominator: 5, subscriptionPrice: 8.5, currency: "EUR", recordDate: "2026-08-24" },
+    schemeImpacts: [],
+    options: [
+      { id: "exercise", label: "Exercise rights", description: "Subscribe for new shares.", result: "Funding is required.", default: false },
+      { id: "lapse", label: "Allow rights to lapse", description: "Take no action.", result: "Rights expire.", default: true },
+    ],
+    instruction: { status: "DRAFT", destination: "Synthetic gateway", reference: "DRAFT-TEST", generatedAt: "", content: "DRAFT ONLY", simulated: false, approvalActor: "" },
+    reconciliation: {
+      expected: 0, expectedCash: 0, expectedSecurityQuantity: 0, expectedCurrency: "EUR", expectedSettlementDate: "2026-09-05", expectedAccount: "TEST-001",
+      actual: 0, actualCash: 0, actualSecurityQuantity: 0, actualCurrency: "EUR", actualSettlementDate: "", actualAccount: "",
+      difference: 0, tolerance: 0.01, status: "Not due", classification: "Not due", note: "", investigationSteps: [],
+    },
+    tasks: [],
+    audit: [],
+    calculation: { rounding: "Round down", assumptions: "Test fixture", sourceRule: "TEST-CONTROL" },
+    validation: { missingTerms: [], isReady: true },
+  };
+}
+
+async function signIn(actorId: string): Promise<Session> {
+  const response = await fetch(`${baseUrl}/session`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ actorId }),
+  });
+  assert.equal(response.status, 200, `Could not sign in ${actorId}`);
+  const cookie = response.headers.get("set-cookie")?.split(";", 1)[0];
+  assert.ok(cookie, "Expected a signed session cookie");
+  return { cookie };
+}
+
+async function request(path: string, init: RequestInit = {}, session?: Session): Promise<{ status: number; body: any }> {
+  const headers = new Headers(init.headers);
+  headers.set("content-type", "application/json");
+  if (session) headers.set("cookie", session.cookie);
+  const response = await fetch(`${baseUrl}${path}`, { ...init, headers });
+  return { status: response.status, body: await response.json() };
+}
+
+async function resetFixture(): Promise<void> {
+  await db.delete(corporateActionEventsTable).where(inArray(corporateActionEventsTable.id, [eventId]));
+  await db.insert(corporateActionEventsTable).values({ id: eventId, data: rightsFixture() });
+}
+
+before(async () => {
+  await ensureCorporateActionSeedData();
+  server = app.listen(0);
+  await once(server, "listening");
+  const address = server.address();
+
+  assert.ok(address && typeof address !== "string");
+  baseUrl = `http://127.0.0.1:${address.port}/api`;
+  analystSession = await signIn("USR-004");
+  reviewerSession = await signIn("USR-005");
+});
+
+beforeEach(resetFixture);
+
+afterEach(resetFixture);
+
+after(async () => {
+  await db.delete(corporateActionEventsTable).where(inArray(corporateActionEventsTable.id, [...createdEventIds]));
+  server.close();
+  await once(server, "close");
+  await pool.end();
+});
+
+describe("corporate-action API workflow", { concurrency: false }, () => {
+  test("returns a safe JSON response for unmatched API routes", async () => {
+    const response = await request("/not-a-real-route");
+    assert.equal(response.status, 404);
+    assert.deepEqual(response.body, { error: "API route not found." });
+  });
+
+  test("serves every dashboard figure and all ten server-ranked schemes", async () => {
+    const [dashboard, schemes] = await Promise.all([
+      request("/dashboard", {}, analystSession),
+      request("/schemes", {}, analystSession),
+    ]);
+    assert.equal(dashboard.status, 200);
+    assert.equal(schemes.status, 200);
+    assert.equal(schemes.body.length, 10);
+    for (const field of ["arrivalCount24h", "portfolioEventCount", "impactedSchemeCount", "totalSchemeCount", "totalFunding", "nearestDeadline", "inboundEvents", "schemes"]) {
+      assert.ok(field in dashboard.body, `Dashboard is missing ${field}`);
+    }
+    assert.equal(dashboard.body.schemes.length, 10);
+    assert.ok(dashboard.body.inboundEvents.some((event: EventData) => event.id === eventId), "The captured fixture event should appear on the dashboard");
+  });
+
+  test("serves aggregate funding, history, and desk views without sample events", async () => {
+    const [analysis, focusedScheme, desk] = await Promise.all([
+      request("/analysis", {}, analystSession),
+      request("/schemes/arka-focused-25", {}, analystSession),
+      request("/desk", {}, analystSession),
+    ]);
+    assert.equal(analysis.status, 200);
+    assert.equal(analysis.body.schemes.length, 10);
+    assert.equal(focusedScheme.status, 200);
+    assert.equal(desk.status, 200);
+    assert.equal(desk.body.schemes.length, 10);
+    for (const scheme of analysis.body.schemes) {
+      assert.ok(scheme.aggregateFundingNeeded >= scheme.largestSingleEventFunding, `${scheme.schemeId} aggregate funding must cover its largest single event`);
+    }
+    // Demo walkthrough cases are seeded alongside live captures, so history
+    // may include them; only structural invariants are asserted.
+    assert.ok(analysis.body.history.lapsedCount >= 0);
+    assert.ok(analysis.body.history.capturedAmount >= 0);
+    assert.ok(analysis.body.history.deadlinesMet <= analysis.body.history.deadlinesTotal);
+  });
+
+  test("keeps demo walkthrough cases seeded alongside live captures without duplication", async () => {
+    const response = await request("/events", {}, analystSession);
+    assert.equal(response.status, 200);
+    const seedIds = new Set(getSeededEventSnapshot().map((seed) => seed.id));
+    const seededPresent = response.body.filter((event: EventData) => seedIds.has(event.id));
+    assert.ok(seededPresent.length > 0, "Demo walkthrough cases must be seeded");
+    const ids = response.body.map((event: EventData) => event.id);
+    assert.equal(new Set(ids).size, ids.length, "Events must not be duplicated by re-seeding");
+  });
+
+  test("blocks an early sighting until a matching custodian MT564 merges into it", async () => {
+    const original = getSeededEventSnapshot().find((event) => event.id === "evt-early-sighting");
+    assert.ok(original);
+    // Samples are no longer seeded; stage the sighting fixture explicitly.
+    await db.delete(corporateActionEventsTable).where(eq(corporateActionEventsTable.id, original.id));
+    await db.insert(corporateActionEventsTable).values({ id: original.id, data: original });
+    createdEventIds.add(original.id);
+    const sighting = await request("/events/evt-early-sighting", {}, analystSession);
+    assert.equal(sighting.status, 200);
+    assert.equal(sighting.body.isEarlySighting, true);
+    assert.equal(sighting.body.impactBasis, "Indicative");
+
+    const blocked = await request("/events/evt-early-sighting/election", {
+      method: "POST",
+      body: JSON.stringify({ impactId: sighting.body.schemeImpacts.find((impact: EventData) => impact.affected)?.id ?? "none", optionId: "none", quantityElected: 0, comment: "" }),
+    }, analystSession);
+    assert.equal(blocked.status, 409);
+    assert.match(blocked.body.error, /Awaiting custodian notification/);
+
+    const receivedAt = new Date().toISOString();
+    await db.insert(corporateActionIntakeDraftsTable).values({
+      id: sightingDraftId,
+      data: {
+        id: sightingDraftId,
+        title: "SBI-SG MT564",
+        status: "Ready to create case",
+        source: { type: "structured-feed", label: "SBI-SG MT564", receivedAt, capturedText: "Veda Consumer Products Ltd dividend" },
+        extraction: { status: "Validated", method: "Structured feed", confidence: 1, errors: [] },
+        terms: [
+          { key: "eventType", label: "Event type", value: "Cash dividend", page: "p. 1", evidence: "Cash dividend", confidence: 1, reviewStatus: "Validated", sourceType: "Feed", manuallyCorrected: false, oldValue: "", correctionReason: "" },
+          { key: "issuer", label: "Issuer", value: "Veda Consumer Products Ltd", page: "p. 1", evidence: "Veda Consumer Products Ltd", confidence: 1, reviewStatus: "Validated", sourceType: "Feed", manuallyCorrected: false, oldValue: "", correctionReason: "" },
+          { key: "securityIdentifier", label: "Security identifier", value: "INE0VED01030", page: "p. 1", evidence: "INE0VED01030", confidence: 1, reviewStatus: "Validated", sourceType: "Feed", manuallyCorrected: false, oldValue: "", correctionReason: "" },
+          { key: "rate", label: "Cash rate", value: "₹3.25", page: "p. 1", evidence: "₹3.25", confidence: 1, reviewStatus: "Validated", sourceType: "Feed", manuallyCorrected: false, oldValue: "", correctionReason: "" },
+        ],
+        createdAt: receivedAt,
+        updatedAt: receivedAt,
+        createdBy: { id: "USR-004", name: "Rohan Iyer" },
+        audit: [],
+      },
+    });
+    try {
+      const merged = await request(`/intake/drafts/${sightingDraftId}/create-case`, { method: "POST" }, analystSession);
+      assert.equal(merged.status, 201, JSON.stringify(merged.body));
+      assert.equal(merged.body.id, "evt-early-sighting");
+      assert.equal(merged.body.isEarlySighting, false);
+      assert.equal(merged.body.impactBasis, "Confirmed");
+      assert.ok(merged.body.sourceRecords.some((source: EventData) => source.messageType === "MT564"));
+      assert.deepEqual(merged.body.sourceDisagreements[0], {
+        field: "Cash rate",
+        sightingValue: "₹3.00",
+        confirmedValue: "₹3.25",
+        winner: "Custodian",
+      });
+    } finally {
+      await db.delete(corporateActionEventsTable).where(eq(corporateActionEventsTable.id, original.id));
+      await db.delete(corporateActionIntakeDraftsTable).where(eq(corporateActionIntakeDraftsTable.id, sightingDraftId));
+    }
+  });
+
+  test("renders a decomposable accountability view for every Arka scheme", async () => {
+    for (const seed of ARKA_SCHEME_SEED) {
+      const response = await request(`/schemes/${seed.id}`, {}, analystSession);
+      assert.equal(response.status, 200, `${seed.schemeName} should render`);
+      assert.equal(response.body.id, seed.id);
+      const contributionTotal = response.body.contributions.reduce(
+        (total: number, contribution: EventData) => total + contribution.navImpactPaise,
+        0,
+      );
+      const displayedTotal = response.body.situation.match(/cost ([\d.]+) paise/)?.[1];
+      if (response.body.contributions.length > 0) {
+        assert.equal(contributionTotal.toFixed(2), displayedTotal);
+      } else {
+        assert.match(response.body.situation, /Nothing is affecting/);
+      }
+      assert.ok(response.body.funding.available >= 0);
+      assert.equal(
+        response.body.funding.shortfall,
+        Math.max(0, response.body.funding.needed - response.body.funding.available),
+      );
+    }
+  });
+
+  test("derives workflow roles from signed sessions and blocks maker self-approval", async () => {
+    const unauthenticated = await request(`/events/${eventId}/calculate`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    }, reviewerSession);
+    assert.equal(unauthenticated.status, 403);
+
+    const calculated = await request(`/events/${eventId}/calculate`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    }, analystSession);
+    assert.equal(calculated.status, 200, JSON.stringify(calculated.body));
+    assert.equal(calculated.body.cashDirection, "Payable");
+    assert.deepEqual(
+      calculated.body.schemeImpacts.map((impact: EventData) => ({
+        account: impact.account,
+        expectedCash: impact.expectedCash,
+        cashDirection: impact.cashDirection,
+        expectedSecurityQuantity: impact.expectedSecurityQuantity,
+      })),
+      [
+        { account: "TEST-001", expectedCash: 170_000, cashDirection: "Payable", expectedSecurityQuantity: 20_000 },
+        { account: "TEST-002", expectedCash: 85_000, cashDirection: "Payable", expectedSecurityQuantity: 10_000 },
+      ],
+    );
+    const impact = calculated.body.schemeImpacts[0];
+
+    const election = await request(`/events/${eventId}/election`, {
+      method: "POST",
+      body: JSON.stringify({
+        impactId: impact.id,
+        optionId: "exercise",
+        quantityElected: 20_000,
+        comment: "Exercise full entitlement.",
+      }),
+    }, analystSession);
+    assert.equal(election.status, 200);
+    assert.equal(election.body.status, "Election required");
+
+    const secondElection = await request(`/events/${eventId}/election`, {
+      method: "POST",
+      body: JSON.stringify({
+        impactId: calculated.body.schemeImpacts[1].id,
+        optionId: "exercise",
+        quantityElected: 10_000,
+        comment: "Exercise full entitlement.",
+      }),
+    }, analystSession);
+    assert.equal(secondElection.status, 200);
+    assert.equal(secondElection.body.status, "Awaiting approval");
+
+    const spoofedReviewer = await request(`/events/${eventId}/approval`, {
+      method: "POST",
+      body: JSON.stringify({
+        approved: true,
+        note: "Role in the payload must be ignored.",
+        actorId: "USR-005",
+        actorRole: "Compliance",
+      }),
+    }, analystSession);
+    assert.equal(spoofedReviewer.status, 403);
+
+    const rohan = demoUsers.find((user) => user.id === "USR-004");
+    assert.ok(rohan);
+    const originalRole = rohan.role;
+    rohan.role = "Compliance";
+    try {
+      const selfApproval = await request(`/events/${eventId}/approval`, {
+        method: "POST",
+        body: JSON.stringify({ approved: true, note: "Self approval must be rejected." }),
+      }, analystSession);
+      assert.equal(selfApproval.status, 409);
+      assert.match(selfApproval.body.error, /Maker-checker control failed/);
+    } finally {
+      rohan.role = originalRole;
+    }
+
+    const approved = await request(`/events/${eventId}/approval`, {
+      method: "POST",
+      body: JSON.stringify({ approved: true, note: "Independent checker approval." }),
+    }, reviewerSession);
+    assert.equal(approved.status, 200);
+    assert.equal(approved.body.status, "Approved");
+    assert.equal(approved.body.audit[0].actor, "Nisha Kapoor");
+    assert.equal(approved.body.audit[0].actorId, "USR-005");
+    assert.equal(approved.body.audit[0].actorRole, "Compliance");
+  });
+
+  test("records server-resolved identity on term and intake audit entries", async () => {
+    const updated = await request(`/events/${eventId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ terms: [{ key: "subscriptionPrice", value: "EUR 8.50" }] }),
+    }, analystSession);
+    assert.equal(updated.status, 200, JSON.stringify(updated.body));
+    assert.equal(updated.body.audit[0].actor, "Rohan Iyer");
+    assert.equal(updated.body.audit[0].actorId, "USR-004");
+    assert.equal(updated.body.audit[0].actorRole, "Fund Manager");
+
+    const intake = await request("/intake", {
+      method: "POST",
+      body: JSON.stringify({ sampleId: "rights-issue", fileName: `rights-${runId}.pdf`, source: "API workflow test" }),
+    }, analystSession);
+    assert.equal(intake.status, 201);
+    createdEventIds.add(intake.body.id);
+    assert.equal(intake.body.audit[0].actor, "Rohan Iyer");
+    assert.equal(intake.body.audit[0].actorId, "USR-004");
+    assert.equal(intake.body.audit[0].actorRole, "Fund Manager");
+
+    const invalidSample = await request("/intake", {
+      method: "POST",
+      body: JSON.stringify({ sampleId: "unknown-notice", fileName: "unknown.pdf", source: "API workflow test" }),
+    }, analystSession);
+    assert.equal(invalidSample.status, 400);
+    assert.match(invalidSample.body.error, /invalid enum value/i);
+  });
+});
